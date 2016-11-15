@@ -1,0 +1,546 @@
+---
+title: "sdna"
+author: "infiLab"
+date: "12 September 2016"
+output: html_document
+---
+
+<style type="text/css"> 
+
+.imgTooltip {
+      display: none;
+}
+
+.ItemsTooltip:hover .imgTooltip {
+      display: block;
+      position: absolute;
+      z-index: 1;
+}
+
+</style>
+
+```{r setup, include=FALSE}
+# knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
+library(magrittr)
+library(highcharter)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(viridisLite)
+library(htmltools)
+library(DT)
+load(file="C:\\Users\\dpsaradellis\\Desktop\\sdna.RData")
+Sys.setlocale(category = "LC_ALL", locale = "Greek")
+
+Teams <- c("Olympiacos Piraeus"="Ολυμπιακός", 
+           "Panathinaikos Athens"="Παναθηναϊκός", 
+           "PAOK Thessaloniki"="ΠΑΟΚ", 
+           "AEK Athens"="ΑΕΚ", 
+           "Asteras Tripolis"="Αστέρας Τρίπολης", 
+           "Panionios Athens"="Πανιώνιος", 
+           "Panetolikos Agrinio"="Παναιτωλικός", 
+           "Atromitos Athen"="Ατρόμητος", 
+           "PAS Giannina"="ΠΑΣ Γιάννινα", 
+           "AO Xanthi"="Ξάνθη", 
+           "Platanias Chania"="ΑΟ Πλατανιά", 
+           "PAE Veria"="Βέροια", 
+           "AE Larisa"="Λάρισα", 
+           "APO Levadiakos"="Λεβαδειακός", 
+           "Iraklis Thessaloniki"="Ηρακλής", 
+           "AOK Kerkyra"="Κέρκυρα") %>% iconv(from="windows-1253", to="UTF-8")
+
+df1 <- df %>% group_by(Nationality) %>% summarize(N=n()) %>% 
+  separate(Nationality, c("c1", "c2"), sep="\\|")
+
+df11 <- df1[, c(1, 3)]
+df12 <- df1[, c(2, 3)]
+names(df11) <- c("c1", "cnt")
+names(df12) <- c("c1", "cnt")
+
+df2 <- rbind(df11, df12)
+df2 <- na.omit(df2)
+
+df3 <- df2 %>% mutate(c1=gsub("^\\s+|\\s+$", "", c1)) %>% group_by(c1) %>% 
+  summarize(Freq=sum(cnt))
+df3 <- df3[df3$c1 != "N/A", ]
+
+data(worldgeojson)
+mmap <- data.frame(country=sapply(1:length(worldgeojson$features), function(x){
+  worldgeojson$features[[x]]$properties$name}), 
+                   iso3=sapply(1:length(worldgeojson$features), function(x){
+                     worldgeojson$features[[x]]$properties$iso3}))
+
+country <- mmap$iso3
+names(country) <- tolower(mmap$country)
+
+df3$c1[is.na(country[tolower(df3$c1)])]
+
+df3$c1[df3$c1=="Bosnia-Herzegovina"] <- "Bosnia and Herzegovina"
+df3$c1[df3$c1=="Congo"] <- "Republic of Congo"
+df3$c1[df3$c1=="Congo DR"] <- "Democratic Republic of the Congo"
+df3$c1[df3$c1=="Cote d'Ivoire"] <- "Ivory Coast"
+df3$c1[df3$c1=="England"] <- "United Kingdom"
+df3$c1[df3$c1=="Guinea-Bissau"] <- "Guinea Bissau"
+df3$c1[df3$c1=="Martinique"] <- "France"
+df3$c1[df3$c1=="Serbia"] <- "Republic of Serbia" 
+
+df3$c1[is.na(country[tolower(df3$c1)])]
+# names(country)[order(names(country))]
+df4 <- df3 %>% select(country=c1, Freq) %>% left_join(mmap)
+
+hc <- highchart() %>% 
+  hc_add_series_map(worldgeojson, df4[df4$country!="Greece", ],
+                    value = "Freq", joinBy = "iso3") %>% 
+  hc_colorAxis(minColor = "#FDE725", maxColor = "#440154") %>% 
+  hc_legend(enabled = TRUE) %>% 
+  hc_add_theme(hc_theme_db()) %>% 
+  hc_mapNavigation(enabled = TRUE)
+
+# a <- gsub(".*(^[0-9]+.*[0-9]+).*", "\\1", df$Value) %>% 
+#   sub(",", "\\.", .) %>% as.numeric()
+# b <- sub(".*Th\\..*", "1000", df$Value) %>% 
+#   sub(".*Mill\\..*", "1000000", .) %>% as.numeric()
+
+
+a <- df$KatharaEsoda  %>% gsub(".*(^[-\\+][0-9]+.*[0-9]+).*", "\\1", .) %>% 
+  sub(",", "\\.", .) %>% as.numeric()
+b <- df$KatharaEsoda  %>% sub(".*Th\\..*", "1000", .) %>% 
+  sub(".*Mill\\..*", "1000000", .) %>% as.numeric()
+
+C <- a*b
+C[is.na(C)] <- 0
+df$EsodaMetagrafwn <- round(C/1000000,2)
+
+# View(df)
+# names(df)
+agg <- df %>% group_by(Team) %>% summarize(Av_Age=round(mean(Age, na.rm=T),1), 
+                                    Avg_Height=round(mean(Height, na.rm=T),1), 
+                                    Ttl_Value=sum(Value2, na.rm = T),
+                                    Avg_Contract_duration=round(mean(playerContrUntil, na.rm=T),1),
+                                    Players=n(),
+                                    prc_Greek=round(mean(ifelse(Nationality=='Greece', 1, 0))*100,1),
+                                    Prc_Academy=round(mean(grepl("U[0-9]{2}$", previousTeam))*100,1),
+                                    prcGreekFromAcad = round(Prc_Academy/prc_Greek*100, 1),
+                                    cnt_Academy=sum(grepl("U[0-9]{2}$", previousTeam)),
+                                    right=mean(ifelse(Foot=="right", 1, 0)),
+                                    left=mean(ifelse(Foot=="left", 1, 0)),
+                                    both=mean(ifelse(Foot=="both", 1, 0)),
+                                    NationalPlayer=mean(as.numeric(NumOfNationalPlayers)),
+                                    EsodaMetagrafwn=mean(EsodaMetagrafwn)
+                                    
+)
+
+# View(agg)
+# ti % twn ellinwn irthan apo tis akadimies
+```
+
+[Εδώ το άρθρο στο sdna](http://www.sdna.gr/podosfairo/superleague/article/240153/apolyto-crash-test-olympiakoy-panathinaikoy-paok-kai-aek)
+
+<br>
+
+<h3>Από ποιές χώρες είναι οι ξένοι παίκτες στο Ελληνικό Πρωτάθλημα</h3>
+
+```{r}
+hc
+```
+
+
+<br>
+
+<h3>Υπάρχει σχέση μεταξύ της χωρητικότητας του σταδίου και της αξίας της ομάδας?</h3>
+
+```{r}
+
+df1 <- df %>% group_by(Team) %>% summarize(stadiumseats=mean(stadiumseats, na.rm=TRUE), Axia=sum(Value2, na.rm=TRUE)) %>% arrange(-Axia) 
+
+df1$Team2 <- Teams[as.character(df1$Team)]
+
+# unlist(df1$Team2)
+
+  highchart() %>% 
+  hc_add_series(data = df1$Axia, name = "Αξία", yAxis = 1) %>% 
+    hc_title(text = "Σχέση αξίας και σταδίου", style = list(color = "black")) %>% 
+  hc_subtitle(text = "Αξία και χωρητικότητα σταδίου ανά ομάδα",
+              style = list(color = "#B71C1C", fontWeight = "bold")) %>% 
+  hc_xAxis(categories = 
+             
+             c("Ολυμπιακός","Παναθηναϊκός","ΠΑΟΚ","ΑΕΚ","Αστέρας Τρίπολης",
+               "Πανιώνιος", "Παναιτωλικός","Ατρόμητος","ΠΑΣ Γιάννινα",
+               "Ξάνθη","ΑΟ Πλατανιά","Βέροια","Λάρισα","Λεβαδειακός","Ηρακλής","Κέρκυρα" 
+             )
+             
+             ) %>% 
+  hc_add_series(name = "Χωρητικότητα", type = "column", color = "#1A237E",
+               dataLabels = list(align = "center", enabled = TRUE),
+               data = df1$stadiumseats) %>% 
+  hc_tooltip(crosshairs = TRUE, shared = TRUE) %>% 
+  
+    hc_yAxis_multiples(
+    list(title = list(text = "Χωρητικότητα Σταδίου", style= list(color='darkblue'))),
+    list(
+      title = list(text = "Αξία Ομάδας (σε εκατομμύρια)", style= list(color='red')),
+      max =80,opposite = TRUE
+    ))  %>% hc_add_theme(hc_theme_538())
+
+  
+```
+
+
+
+<br>
+
+Μέσο ύψος και ηλικία ανά ομάδα
+
+```{r}
+
+agg2 <- agg %>% arrange(Av_Age)
+agg2$Team2 <- Teams[as.character(agg2$Team)]
+
+
+highchart() %>%
+  hc_title(text = "Ύψος - Ηλικία") %>%
+  hc_subtitle(text = "Ο Ηρακλής η πιο νέα ομάδα, η Βέροια η πιο 'γερασμένη'",
+              style = list(
+                # fontWeight = "bold",
+                fontSize =  "12px")) %>%
+
+  hc_xAxis(categories = c(
+    "Ηρακλής", "Πανιώνιος", "Αστέρας Τρίπολης", "Παναιτωλικός", "ΠΑΣ Γιάννινα", "ΠΑΟΚ",       
+    "Ολυμπιακός","ΑΟ Πλατανιά","Ξάνθη","Λάρισα","Λεβαδειακός","ΑΕΚ","Ατρόμητος","Παναθηναϊκός",
+    "Κέρκυρα","Βέροια"
+    
+  )) %>%
+
+    hc_yAxis_multiples(
+    list( title = list(enabled = TRUE,
+                   text = 'Η μέση <b>ηλικία </b> των παικτών',
+                   style=list(color = "#3399cc")),
+      labels=list(style=list(color = "#3399cc"), format = "{value} Χρονών"),
+      max =28, min=20
+    ),
+
+    list(
+      title = list(text = "Το μέσο ύψος των παικτών",
+                   style=list(color = "#990000")),
+
+      labels = list(style=list(color = "#990000"), format = "{value} εκατ."),
+      max =184, min=178,
+
+      opposite = TRUE
+    )
+  ) %>%
+
+  hc_plotOptions(column = list(grouping = FALSE, borderWidth = 0, shadow = FALSE)) %>%
+
+  hc_add_series(name = "Υψος", type = "column",
+                data = agg2$Avg_Height,
+                color = "#990000",
+                yAxis=1,
+                pointPadding = 0.1) %>%
+
+  hc_add_series(name = "Ηλικία", type = "column",
+                data = agg2$Av_Age,
+
+                color = "#3399cc",
+                pointPadding = 0.35) %>%
+  
+    hc_tooltip(formatter = JS("function(){
+                            return ('<b><u>Ομάδα: </b></u> <i>'+ this.x.replace(/.*:/, '') + '</i><br><b><u>Ύψος (σε εκατοστά): </b></u> ' + this.y + '$')
+                            }"),
+             useHTML = TRUE) %>%
+
+  hc_add_theme(hc_theme_sandsignika())
+
+```
+
+<br>
+
+Πόσοι Έλληνες σε κάθε ομάδα και πόσοι προέρχονται απο τις ακαδημίες
+
+```{r}
+agg2 <- agg %>% arrange(-prc_Greek)
+agg2$Team2 <- Teams[as.character(agg2$Team)]
+
+
+hc_opts <- list()
+hc_opts$chart <- list(type = "bar")
+hc_opts$title <- list(title = "Τι % είναι Έλληνες, και πόσοι εξ αυτών απο Ακαδημίες")
+hc_opts$xAxis <- list(categories = c(
+  
+  "Ηρακλής","Πανιώνιος","Λεβαδειακός","Κέρκυρα","Ατρόμητος","ΠΑΟΚ","Ξάνθη",
+  "ΠΑΣ Γιάννινα","ΑΟ Πλατανιά","Λάρισα","Αστέρας Τρίπολης","ΑΕΚ","Παναιτωλικός",
+  "Βέροια","Ολυμπιακός","Παναθηναϊκός"
+))
+hc_opts$yAxis <- list(min = 0, title = list(text = '(τις %)'))
+hc_opts$legend <- list(reversed = TRUE)
+hc_opts$series <- list(list(name = "% Ελλήνων", data = agg2$prc_Greek, color = "blue"),
+                       list(name = "% Ελλήνων από Ακαδημίες", data = agg2$prcGreekFromAcad, 
+                            visible = FALSE))
+
+highchart(hc_opts, theme = hc_theme_darkunica())
+```
+
+
+<br>
+
+Ποιό είναι το "καλό" το πόδι
+
+```{r}
+
+agg2 <- agg %>% select(Team, right, left, both)
+agg2 %<>% arrange(-both) %>% gather(Leg, Prc, -Team) %>% 
+  mutate(`Ποσοστό παικτών της ομάδας`=round(Prc*100, 1)) %>% rename(`Ομάδα`=Team)
+agg2$Leg[agg2$Leg=="right"] <- "Δεξί"
+agg2$Leg[agg2$Leg=="left"] <- "Αριστερό"
+agg2$Leg[agg2$Leg=="both"] <- "Και τα δύο"
+# agg2$Team <- Teams[as.character(agg2$Team)]
+
+hchart(agg2, "column", x = `Ομάδα`, y = `Ποσοστό παικτών της ομάδας`, group = Leg) %>% 
+  hc_tooltip(formatter = 
+    JS("function(){return ( 'Καλό πόδι: <b>'+ this.series.name + '</b> <br> Το <b>'+ this.y + ' %</b> των παικτών')}"),
+             useHTML = TRUE) 
+# View(df)
+```
+
+
+<br>
+
+Ποιο είναι το ισοζύγιο απο τη μεταγραφική περίοδο. Τι διάρκεια συμβολαίων κλείσαν οι ομάδες
+
+```{r}
+
+agg2 <- agg %>% arrange(-EsodaMetagrafwn)
+agg2$Team2 <- Teams[as.character(agg2$Team)]
+
+
+  highchart() %>% 
+  hc_add_series(data = agg2$Avg_Contract_duration, name = "Διάρκεια συμβολαίων", 
+                yAxis = 1, color = "#993333") %>% 
+    hc_title(text = "Κερδη - ζημίες απο μεταγραφές", style = list(color = "#008080")) %>% 
+  hc_subtitle(text = "... και ποια είναι η μέση διάρκεια των συμβολαίων",
+              style = list(color = "#993333", fontWeight = "bold")) %>% 
+  hc_xAxis(categories = c(
+    
+    "Ολυμπιακός","ΠΑΟΚ","Ηρακλής","Ατρόμητος","Πανιώνιος","ΑΟ Πλατανιά",
+    "ΠΑΣ Γιάννινα","Λεβαδειακός","Κέρκυρα","Λάρισα","Παναιτωλικός","Βέροια",
+    "Ξάνθη","Αστέρας Τρίπολης","ΑΕΚ","Παναθηναϊκός"
+    
+  )) %>% 
+  hc_add_series(name = "Ισοζύγιο Μεταγραφών", type = "column", color = "#008080",
+               dataLabels = list(align = "center", enabled = TRUE),
+               data = agg2$EsodaMetagrafwn) %>% 
+  hc_tooltip(crosshairs = TRUE, shared = TRUE) %>% 
+  
+    hc_yAxis_multiples(
+    list(title = list(text = "Ισοζύγιο Μεταγραφών (σε εκατομμύρια)", style= list(color='#008080'))),
+    list(
+      title = list(text = "Μέση διάρκεια συμβολαίων (σε έτη)", style= list(color='#993333')), min=0,
+      opposite = TRUE
+    ))  %>% hc_add_theme(hc_theme_sandsignika())
+
+```
+
+
+<br>
+
+Η αξία κάθε παίκτη
+
+
+```{r}
+
+k <- 15
+
+df5 <- df %>% arrange(Team, -Value2, -Age) %>% mutate(key=1) %>% 
+  group_by(Team) %>% mutate(key=cumsum(key)) %>% ungroup %>% filter(key<=k) %>% 
+  select(Team, y=Value2, Name, Thesi=Thesi, Age, Nationality, Strong_Foot=Foot,
+         PreviousTeam=previousTeam, PhotoImg=PhotoUrl, Contract=Until)
+
+df5$Age <- paste("<b>Ηλικία:</b>", df5$Age)
+df5$Nationality <- paste("<b>Εθνικότητα:</b>", df5$Nationality)
+df5$Strong_Foot <- paste("<b>Δυνατό πόδι:</b>", df5$Strong_Foot)
+
+df5$Strong_Foot <- sub("right", "Δεξί", df5$Strong_Foot)
+df5$Strong_Foot <- sub("left", "Αριστερό", df5$Strong_Foot)
+df5$Strong_Foot <- sub("both", "Και τα δύο", df5$Strong_Foot)
+
+df5$PreviousTeam <- paste("<b>Προηγούμενη Ομάδα:</b>", df5$PreviousTeam)
+df5$Contract <- paste("<b>Λήξη συμβολαίου:</b>", df5$Contract)
+df5$Thesi <- paste("<b>Θέση:</b>", df5$Thesi)
+df5$PhotoImg <- paste0("http://", df5$PhotoImg)
+
+df5list <- split(df5, df5$Team)
+# names(df5list)
+# View(df5list$`Olympiacos Piraeus`)
+highchart() %>% 
+  hc_title(text = "<b>Το ρόστερ των ομάδων</b>") %>%
+  # hc_tooltip(valueDecimals = 2) %>% 
+  hc_yAxis(title = list(text = "<b>Αξία παίκτη</b>"),
+           labels = list(format = "{value} εκ. €")) %>%
+  hc_xAxis(categories = 1:k) %>%
+  hc_add_series(data = list_parse(df5list$`Olympiacos Piraeus`),
+                type = "spline",
+                name = "Ολυμπιακός", 
+                color = "#DD0C2B", #οκ
+                visible = TRUE) %>%
+  
+    hc_add_series(data = list_parse(df5list$`Panathinaikos Athens`),
+                type = "spline",
+                name = "Παναθηναικός",
+                color = "#12816D", #οκ
+                visible = TRUE) %>%
+  
+      hc_add_series(data = list_parse(df5list$`AEK Athens`),
+                type = "spline",
+                name = "ΑΕΚ",
+                color = "#FFEC6C", #οκ
+                visible = TRUE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`PAOK Thessaloniki`),
+                type = "spline",
+                name = "ΠΑΟΚ",
+                color = "#0D0D0F", #οκ
+                visible = TRUE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`Asteras Tripolis`),
+                type = "spline",
+                name = "Αστέρας Τρίπολης",
+                color = "#D29931", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`Atromitos Athen`),
+                type = "spline",
+                name = "Ατρόμητος Αθηνών",
+                color = "#02468D", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`Iraklis Thessaloniki`),
+                type = "spline",
+                name = "Ηρακλής",
+                color = "#527ED3", #οκ
+                visible = FALSE) %>%
+
+        hc_add_series(data = list_parse(df5list$`AOK Kerkyra`),
+                type = "spline",
+                name = "Α.Ο.Κ. Κέρκυρα",
+                color = "#2349D5", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`AE Larisa`),
+                type = "spline",
+                name = "ΑΕ Λάρισας",
+                color = "#460217", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`APO Levadiakos`),
+                type = "spline",
+                name = "ΑΠΟ Λεβαδειακός",
+                color = "#67BC63", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`Panionios Athens`),
+                type = "spline",
+                name = "Πανιώνιος",
+                color = "#611110", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`Panetolikos Agrinio`),
+                type = "spline",
+                name = "Παναιτωλικός",
+                color = "#E4C620", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`PAS Giannina`),
+                type = "spline",
+                name = "Π.Α.Σ. Γιάννινα",
+                color = "#18344C", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`Platanias Chania`),
+                type = "spline",
+                name = "Πλατανιά Χανίων",
+                color = "#6DABFE", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`PAE Veria`),
+                type = "spline",
+                name = "ΠΑΕ Βέροια",
+                color = "#870806", #οκ
+                visible = FALSE) %>%
+  
+        hc_add_series(data = list_parse(df5list$`AO Xanthi`),
+                type = "spline",
+                name = "ΑΟ Ξάνθη",
+                color = "#E91A2E", #οκ
+                visible = FALSE) %>%
+
+  # hc_legend(enabled = TRUE) %>% 
+  hc_tooltip(crosshairs = TRUE, backgroundColor = "#f2f2f2", shared = FALSE, borderWidth = 3,
+             headerFormat = '<font size="4"> <b><u>{series.name}</u></b><br></font><table>', 
+             footerFormat = '<br><br><br><br><br></table>',
+             style = list(opacity = 0.85)) %>%
+  hc_tooltip(useHTML = TRUE,
+             pointFormat = tagList(
+               tags$span(tags$b("{point.Name}")),
+               tags$br(),
+               tags$img(src = '{point.PhotoImg}', width="58px", height="76px"),
+               tags$br(),
+               tags$span(tags$b("{point.y} Εκ. €")),
+               tags$br(),
+               tags$span('{point.Thesi}'),
+               tags$br(),
+               tags$span('{point.Nationality}'),
+               tags$br(),
+               tags$span('{point.Age}'),
+               tags$br(),
+               tags$span('{point.Strong_Foot}'),
+               tags$br(),
+               tags$span('{point.PreviousTeam}'),
+               tags$br(),
+               tags$span('{point.Contract}')
+             ) %>% as.character()
+             # ,backgroundColor = "white"
+             # ,headerFormat = "<table>"
+             # ,footerFormat = "</table>"
+  ) 
+```
+
+<br>
+<br>
+
+Για να δούμε και τους προπονητές
+
+<br>
+
+
+```{r}
+ch <- df %>% select(Team, CoachName, CoachNationality, CoachAge, CoachContrUntil, 
+                    PointsPerMatch, CoachWins, CoachLosses, CoachPhoto,
+                    ClubFlag)
+
+ch <- ch[!duplicated(ch), ]
+
+
+ch$CoachName <- sapply(1:dim(ch)[1], function(i){
+  tags$a(class="ItemsTooltip", 
+       tags$img(class="imgTooltip", 
+                src=sub("\\?.*", "", paste0("http://", as.character(ch$CoachPhoto)[i]))), 
+       as.character(ch$CoachName)[i]) %>% as.character
+})
+
+ch$Team <- sapply(1:dim(ch)[1], function(i){
+       tags$img(src=sub("\\?.*", "", paste0("http://", as.character(ch$ClubFlag)[i]))) %>% as.character
+})
+
+
+datatable(ch[, -c(9, 10, 11)], escape=c(FALSE, FALSE, rep(TRUE, 6)), rownames=FALSE,
+           options = list(columnDefs = list(list(className = 'dt-center',  targets = 0:7)),
+                           pageLength = 16)
+)
+
+
+```
+
+<br>
+
+To be continued...
